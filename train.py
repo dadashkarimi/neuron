@@ -40,10 +40,16 @@ with open('all_behav_713.csv') as f:
 
 y=np.array(y)
 dataList=[]
-
 for file_ in args.file:
-	with open(file_) as f:
-	    dataList.append(json.load(f))
+	if file_=='unlabled.csv':
+		with open(file_) as f:
+			a = json.load(f)
+			Xp = np.asarray(a).reshape(268*268,len(a[0][0]))
+			Xp = np.transpose(Xp)
+			print(np.shape(Xp))
+	else:
+		with open(file_) as f:
+	    		dataList.append(json.load(f))
 
 for i in range(268):
 	for j in range(268):
