@@ -31,8 +31,9 @@ args = parser.parse_args()
 train = np.zeros((len(args.file),268,268,713))
 ttrain = np.zeros((len(args.file),713,268,268)) # transpose
 X = np.zeros((len(args.file),713,268*268)) # reshape
-Xp = np.zeros((1000,268*268)) # reshape
+Xp = np.zeros((1000,268*268)) # 1000 is arbitrary number
 y= np.array([0]*713)
+yp= np.array([0]*1000)
 kf = KFold(n_splits=5)
 
 ######################### Data Loading ############################
@@ -53,7 +54,8 @@ for file_ in args.file:
 	    		dataList.append(json.load(f))
 
 for z in range(len(dataList)):
-	X[z] = np.asarray(dataList[z].reshape(len(dataList[z]),268*268))
+	a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
+	X[z] = np.transpose(a)
 	print(np.shape(X[z]))
 #for i in range(268):
 #	for j in range(268):
@@ -77,18 +79,6 @@ if len(dataList)==1:
 	X= X[0]
 elif len(dataList)==2 and args.agg=='nmf': # NMF
 	print('nmf starting ..')
-	Z = np.zeros((713,268*268)) # reshape
-<<<<<<< HEAD
-	for i in range(713):
-		W=[]
-		H=[]
-		mf = NMF(n_components=200, init='random', random_state=1)
-		for j in range(len(args.file)):
-			W.append(mf.fit_transform(X[j][i][:].reshape(268,268)))
-			H.append(mf.components_)
-		Z[i] = np.matmul(W[0],H[1]).reshape(268*268)
-	X = Z
-=======
 	W=[]
 	H=[]
 	mf = NMF(n_components=40, init='random', random_state=1)
@@ -105,7 +95,6 @@ elif len(dataList)==2 and args.agg=='nmf': # NMF
 	#		H.append(mf.components_)
 	#	Z[i] = np.matmul(W[0],H[1]).reshape(268*268)
 	#X = Z
->>>>>>> 327515fb1fd089b9d89d33b11cd065fec5950466
 	print('nmf done!')
 elif len(dataList)>1 and args.agg=='avg': # average
 	Z = np.zeros((713,268*268)) # reshape
@@ -152,12 +141,26 @@ elif args.model=='av':
 	model==ab
 elif args.model=='gnb':
 	model=gnb
-
-for train_index, test_index in kf.split(X):
-	X_train, X_test = X[train_index], X[test_index]
-	y_train, y_test = y[train_index], y[test_index]
-	model.fit(X_train,y_train) # learning the model
-	with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-		for i in range(len(X_test)):
-			f.write(str(model.predict([X_test[i]])[0])+'\n')
+if args.semi==True:
+	model.fit(X,y) # learning the model
+	yp= np.array([0]*len(Xp))
+	for i in range(len(Xp)):
+		yp[i] = model.predict([Xp[i]])[0]	
+	for train_index, test_index in kf.split(X):
+		X_train, X_test = X[train_index], X[test_index]
+		y_train, y_test = y[train_index], y[test_index]
+		X_train = np.concatenate((X_train,Xp))
+		y_train = np.concatenate((y_train,yp))
+		model.fit(X_train,y_train) # learning the model
+		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+			for i in range(len(X_test)):
+				f.write(str(model.predict([X_test[i]])[0])+'\n')
+else:
+	for train_index, test_index in kf.split(X):
+		X_train, X_test = X[train_index], X[test_index]
+		y_train, y_test = y[train_index], y[test_index]
+		model.fit(X_train,y_train) # learning the model
+		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+			for i in range(len(X_test)):
+				f.write(str(model.predict([X_test[i]])[0])+'\n')
 
