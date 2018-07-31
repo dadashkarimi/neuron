@@ -31,6 +31,7 @@ args = parser.parse_args()
 train = np.zeros((len(args.file),268,268,713))
 ttrain = np.zeros((len(args.file),713,268,268)) # transpose
 X = np.zeros((len(args.file),713,268*268)) # reshape
+Xp = np.zeros((1000,268*268)) # reshape
 y= np.array([0]*713)
 kf = KFold(n_splits=5)
 
@@ -51,18 +52,21 @@ for file_ in args.file:
 		with open(file_) as f:
 	    		dataList.append(json.load(f))
 
-for i in range(268):
-	for j in range(268):
-		for k in range(713):
-			for z in range(len(dataList)):
-				train[z][i][j][k] = float(dataList[z][i][j][k])
-				ttrain[z][k][i][j] = float(dataList[z][i][j][k])
-
-for k in range(713):
-	for z in range(len(dataList)):
-		X[z][k] = np.reshape(ttrain[z][k],-1)
-
-
+for z in range(len(dataList)):
+	X[z] = np.asarray(dataList[z].reshape(len(dataList[z]),268*268))
+	print(np.shape(X[z]))
+#for i in range(268):
+#	for j in range(268):
+#		for k in range(713):
+#			for z in range(len(dataList)):
+#				train[z][i][j][k] = float(dataList[z][i][j][k])
+#				ttrain[z][k][i][j] = float(dataList[z][i][j][k])
+#
+#for k in range(713):
+#	for z in range(len(dataList)):
+#		X[z][k] = np.reshape(ttrain[z][k],-1)
+#
+#
 ################### Normalization ##############################
 for z in tqdm(range(len(dataList))):
 	scalar = MinMaxScaler()
