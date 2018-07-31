@@ -70,7 +70,7 @@ elif len(dataList)==2 and args.agg=='nmf': # NMF
 	for i in range(713):
 		W=[]
 		H=[]
-		mf = NMF(n_components=10, init='random', random_state=1)
+		mf = NMF(n_components=200, init='random', random_state=1)
 		for j in range(len(args.file)):
 			W.append(mf.fit_transform(X[j][i][:].reshape(268,268)))
 			H.append(mf.components_)
