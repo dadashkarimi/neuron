@@ -25,6 +25,7 @@ parser.add_argument('-file', '-f', nargs='+' ,help='data file for train and test
 
 parser.add_argument('--model', '-m', help='[lrg(linear regression),svr(support vector regression),dt (decision tree),rf(random forest)]')
 parser.add_argument('--agg', '-agg', help='[nmf(non-negative matrix factorization), avg(average), max(maximum), min(minimum)]')
+parser.add_argument('--semi', '-semi', type=bool,help='[semi supervised: true, false]')
 args = parser.parse_args()
 
 train = np.zeros((len(args.file),268,268,713))
@@ -67,31 +68,40 @@ if len(dataList)==1:
 elif len(dataList)==2 and args.agg=='nmf': # NMF
 	print('nmf starting ..')
 	Z = np.zeros((713,268*268)) # reshape
-	for i in range(713):
-		W=[]
-		H=[]
-		mf = NMF(n_components=10, init='random', random_state=1)
-		for j in range(len(args.file)):
-			W.append(mf.fit_transform(X[j][i][:].reshape(268,268)))
-			H.append(mf.components_)
-		Z[i] = np.matmul(W[0],H[1]).reshape(268*268)
-	X = Z
+	W=[]
+	H=[]
+	mf = NMF(n_components=40, init='random', random_state=1)
+	for j in range(len(args.file)):
+		W.append(mf.fit_transform(X[j]))
+		H.append(mf.components_)
+	X = np.matmul(W[0],H[1])
+	#for i in range(713):
+	#	W=[]
+	#	H=[]
+	#	mf = NMF(n_components=5, init='random', random_state=1)
+	#	for j in range(len(args.file)):
+	#		W.append(mf.fit_transform(X[j][i][:].reshape(268,268)))
+	#		H.append(mf.components_)
+	#	Z[i] = np.matmul(W[0],H[1]).reshape(268*268)
+	#X = Z
 	print('nmf done!')
-elif len(dataList)==2 and args.agg=='avg': # average
+elif len(dataList)>1 and args.agg=='avg': # average
 	Z = np.zeros((713,268*268)) # reshape
 	for i in range(len(args.file)):
 		Z = np.add(Z,X[i])
 	X = Z/len(args.file)	
-elif len(dataList)==2 and args.agg=='max': # average
+elif len(dataList)>1 and args.agg=='max': # average
 	Z = np.zeros((713,268*268)) # reshape
 	for i in range(len(args.file)):
 		Z = np.maximum(Z,X[i])
 	X = Z
-elif len(dataList)==2 and args.agg=='min': # average
+elif len(dataList)>1 and args.agg=='min': # average
 	Z = 10*np.ones((713,268*268)) # reshape
 	for i in range(len(args.file)):
 		Z = np.minimum(Z,X[i])
 	X = Z
+################### Semi-Supervised Learning######################
+
 ########################### K-Fold ###############################
 try:
     os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
@@ -99,9 +109,7 @@ except OSError:
     pass
 
 dt = DecisionTreeClassifier(min_samples_split=20, random_state=99)
-#clf =SVR(kernel='rbf', C=1e3, gamma=0.1) 
 svr = SVR(kernel='poly', C=1e3, degree=2)
-#svr = svm.SVR(C=1000, epsilon=0.0001)
 reg = linear_model.Lasso(alpha = 0.1)
 rf = RandomForestClassifier(max_depth=2, random_state=0)
 ab= AdaBoostClassifier(
