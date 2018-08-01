@@ -145,16 +145,25 @@ if args.semi==True:
 	model.fit(X,y) # learning the model
 	yp= np.array([0]*len(Xp))
 	for i in range(len(Xp)):
-		yp[i] = model.predict([Xp[i]])[0]	
-	for train_index, test_index in kf.split(X):
-		X_train, X_test = X[train_index], X[test_index]
-		y_train, y_test = y[train_index], y[test_index]
-		X_train = np.concatenate((X_train,Xp))
-		y_train = np.concatenate((y_train,yp))
-		model.fit(X_train,y_train) # learning the model
-		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-			for i in range(len(X_test)):
-				f.write(str(model.predict([X_test[i]])[0])+'\n')
+		yp[i] = model.predict([Xp[i]])[0]
+	#X_train = 	
+	X_train = X[1:100]
+	y_train  = y[1:100]
+	model.fit(X_train,y_train) # learning the model
+	X_test = np.concatenate((X[601:],Xp))
+	y_test = np.concatenate((y[601:],yp))
+	with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+		for i in range(len(X_test)):
+			f.write(str(model.predict([X_test[i]])[0])+'\n')
+#	for train_index, test_index in kf.split(X):
+#		X_train, X_test = X[train_index], X[test_index]
+#		y_train, y_test = y[train_index], y[test_index]
+#		X_train = np.concatenate((X_train,Xp))
+#		y_train = np.concatenate((y_train,yp))
+#		model.fit(X_train,y_train) # learning the model
+#		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+#			for i in range(len(X_test)):
+#				f.write(str(model.predict([X_test[i]])[0])+'\n')
 else:
 	for train_index, test_index in kf.split(X):
 		X_train, X_test = X[train_index], X[test_index]
