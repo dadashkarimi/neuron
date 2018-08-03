@@ -19,23 +19,42 @@ from sklearn.decomposition import NMF
 from sklearn.preprocessing import normalize
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
+from numpy import linalg
+from scipy.linalg import eigh
+
+class Unbuffered(object):
+   def __init__(self, stream):
+       self.stream = stream
+   def write(self, data):
+       self.stream.write(data)
+       self.stream.flush()
+   def writelines(self, datas):
+       self.stream.writelines(datas)
+       self.stream.flush()
+   def __getattr__(self, attr):
+       return getattr(self.stream, attr)
+
+import sys
+sys.stdout = Unbuffered(sys.stdout)
 
 parser = argparse.ArgumentParser(description='Process some integers.')
 parser.add_argument('-file', '-f', nargs='+' ,help='data file for train and test using 5-fold')
 
 parser.add_argument('--model', '-m', help='[lrg(linear regression),svr(support vector regression),dt (decision tree),rf(random forest)]')
 parser.add_argument('--agg', '-agg', help='[nmf(non-negative matrix factorization), avg(average), max(maximum), min(minimum)]')
-parser.add_argument('--semi', '-semi', type=bool,help='[semi supervised: true, false]')
+parser.add_argument('--semi', '-semi', help='[semi supervised: sr=spectral regression, svr = two stage svr]')
 args = parser.parse_args()
 
 train = np.zeros((len(args.file),268,268,713))
 ttrain = np.zeros((len(args.file),713,268,268)) # transpose
 X = np.zeros((len(args.file),713,268*268)) # reshape
 Xp = np.zeros((1000,268*268)) # 1000 is arbitrary number
-y= np.array([0]*713)
-yp= np.array([0]*1000)
+y = np.array([0]*713)
+yp = np.array([0]*1000)
 kf = KFold(n_splits=5)
 
+def gaussian(xi,xj,sigma):
+	return np.exp(-(linalg.norm(xi-xj))/(2*sigma**2))
 ######################### Data Loading ############################
 with open('all_behav_713.csv') as f:
 	y = [float(line) for line in f.readlines()]
@@ -48,15 +67,20 @@ for file_ in args.file:
 			a = json.load(f)
 			Xp = np.asarray(a).reshape(268*268,len(a[0][0]))
 			Xp = np.transpose(Xp)
-			print(np.shape(Xp))
 	else:
 		with open(file_) as f:
 	    		dataList.append(json.load(f))
 
-for z in range(len(dataList)):
-	a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
-	X[z] = np.transpose(a)
-	print(np.shape(X[z]))
+if args.semi:
+	a = np.asarray(np.asarray(dataList[0])).reshape(268*268,713)
+	X = np.transpose(a)
+else:
+	for z in range(len(dataList)):
+		a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
+		X[z] = np.transpose(a)
+
+print('** Data loaded. X:{} and Xp:{} **'.format(np.shape(X),np.shape(Xp)))
+
 #for i in range(268):
 #	for j in range(268):
 #		for k in range(713):
@@ -69,13 +93,18 @@ for z in range(len(dataList)):
 #		X[z][k] = np.reshape(ttrain[z][k],-1)
 #
 #
-################### Normalization ##############################
-for z in tqdm(range(len(dataList))):
-	scalar = MinMaxScaler()
-	X[z] = scalar.fit_transform(X[z])
 
+################### Normalization ##############################
+scalar = MinMaxScaler()
+Xp = scalar.fit_transform(Xp)
+if args.semi:
+	X= scalar.fit_transform(X)
+else:
+	for z in tqdm(range(len(dataList))):
+		X[z] = scalar.fit_transform(X[z])
+print('** Data normalized **')
 ############################ NMF ################################
-if len(dataList)==1:
+if len(dataList)==1 and not args.semi:
 	X= X[0]
 elif len(dataList)==2 and args.agg=='nmf': # NMF
 	print('nmf starting ..')
@@ -141,33 +170,56 @@ elif args.model=='av':
 	model==ab
 elif args.model=='gnb':
 	model=gnb
-if args.semi==True:
+if args.semi=='svr':
 	model.fit(X,y) # learning the model
 	yp= np.array([0]*len(Xp))
 	for i in range(len(Xp)):
 		yp[i] = model.predict([Xp[i]])[0]
 	#X_train = 	
-	X_test = X[601:700]
-	y_test  = y[601:700]
-	X_train = np.concatenate((X[1:200],Xp[1:600]))
-	y_train = np.concatenate((y[1:200],yp[1:600]))
-	model.fit(X_train,y_train) # learning the model
-	sum_ = 0
-	with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-		for i in range(len(X_test)):
-			y_ = model.predict([X_test[i]])[0]
-			sum_ = sum_+ (y_test[i]-y_)**2
-			f.write(str(y_)+'\n')
-	print(sum_/len(y_test))
-#	for train_index, test_index in kf.split(X):
-#		X_train, X_test = X[train_index], X[test_index]
-#		y_train, y_test = y[train_index], y[test_index]
-#		X_train = np.concatenate((X_train,Xp))
-#		y_train = np.concatenate((y_train,yp))
-#		model.fit(X_train,y_train) # learning the model
-#		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-#			for i in range(len(X_test)):
-#				f.write(str(model.predict([X_test[i]])[0])+'\n')
+	#X_test = X[601:700]
+	#y_test  = y[601:700]
+	#X_train = np.concatenate((X[1:200],Xp))
+	#y_train = np.concatenate((y[1:200],yp))
+	#model.fit(X_train,y_train) # learning the model
+	#sum_ = 0
+	#with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+	#	for i in range(len(X_test)):
+	#		y_ = model.predict([X_test[i]])[0]
+	#		sum_ = sum_+ (y_test[i]-y_)**2
+	#		f.write(str(y_)+'\n')
+	#print(sum_/len(y_test))
+	for train_index, test_index in kf.split(X):
+		X_train, X_test = X[train_index], X[test_index]
+		y_train, y_test = y[train_index], y[test_index]
+		X_train = np.concatenate((X_train,Xp))
+		y_train = np.concatenate((y_train,yp))
+		model.fit(X_train,y_train) # learning the model
+		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+			for i in range(len(X_test)):
+				f.write(str(model.predict([X_test[i]])[0])+'\n')
+elif args.semi =='sr' and len(args.file)==2:
+	X_ = np.vstack([X,Xp]) # R^m*(268*268)
+	l = len(X) # number of labled data
+	m = len(X_) # total number of examples (m-l = # unlabled data)
+	print('l:{},m:{}'.format(np.shape(X),m))
+	delta = 0.005
+	W = np.zeros((m,m))
+	
+	for i in range(m):
+		print(i)
+		for j in range(m):
+			if i < len(y) and j < len(y): # labled data
+				if y[i] == y[j]:
+					W[i][j] = 1.0/np.count_nonzero(y==y[i])
+			else:	
+				#W[i][j] = gaussian(X_[i],X_[j],delta*linalg.norm(X_))
+				W[i][j] = linalg.norm(X_[i]-X_[j])
+	D = np.diag(np.diag(W))
+	eigvals, eigvecs = eigh(W, D, eigvals_only=False)
+	print('eigvs:{} eigvals:{}'.format(len(eigvecs),len(eigvals)))
+	
+elif args.semi and len(args.file)!=2:
+	print('please use single labled data.')
 else:
 	for train_index, test_index in kf.split(X):
 		X_train, X_test = X[train_index], X[test_index]
