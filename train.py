@@ -81,19 +81,6 @@ else:
 
 print('** Data loaded. X:{} and Xp:{} **'.format(np.shape(X),np.shape(Xp)))
 
-#for i in range(268):
-#	for j in range(268):
-#		for k in range(713):
-#			for z in range(len(dataList)):
-#				train[z][i][j][k] = float(dataList[z][i][j][k])
-#				ttrain[z][k][i][j] = float(dataList[z][i][j][k])
-#
-#for k in range(713):
-#	for z in range(len(dataList)):
-#		X[z][k] = np.reshape(ttrain[z][k],-1)
-#
-#
-
 ################### Normalization ##############################
 scalar = MinMaxScaler()
 Xp = scalar.fit_transform(Xp)
@@ -220,7 +207,6 @@ elif args.semi =='sr' and len(args.file)==2:
 				if y[i] == y[j]:
 					W[i][j] = 1.0/np.count_nonzero(y==y[i])
 			else:	
-				#W[i][j] = gaussian(X_[i],X_[j],delta*linalg.norm(X_))
 				W[i][j] = delta*linalg.norm(X_[i]-X_[j])
 		D[i][i] = np.sum(W[i])
 	eigvals, eigvecs = eigh(W, D, eigvals_only=False)
