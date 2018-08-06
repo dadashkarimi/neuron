@@ -128,8 +128,6 @@ elif len(dataList)>1 and args.agg=='min': # average
 		Z = np.minimum(Z,X[i])
 	X = Z
 ################### Semi-Supervised Learning######################
-
-########################### K-Fold ###############################
 try:
     try:
 	os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
