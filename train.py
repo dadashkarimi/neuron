@@ -144,7 +144,11 @@ elif len(dataList)>1 and args.agg=='min': # average
 
 ########################### K-Fold ###############################
 try:
-    os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
+    try:
+	os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
+    except OSError:
+    	pass
+    
 except OSError:
     pass
 
@@ -170,7 +174,7 @@ elif args.model=='av':
 	model==ab
 elif args.model=='gnb':
 	model=gnb
-if args.semi=='svr':
+if args.semi=='svr' and len(args.file)==2: # one labled and one unlabled 
 	model.fit(X,y) # learning the model
 	yp= np.array([0]*len(Xp))
 	for i in range(len(Xp)):
@@ -197,27 +201,59 @@ if args.semi=='svr':
 		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
 			for i in range(len(X_test)):
 				f.write(str(model.predict([X_test[i]])[0])+'\n')
+	print('svr > svr is done!')
 elif args.semi =='sr' and len(args.file)==2:
 	X_ = np.vstack([X,Xp]) # R^m*(268*268)
+	yp= np.array([0]*len(Xp))
 	l = len(X) # number of labled data
 	m = len(X_) # total number of examples (m-l = # unlabled data)
 	print('l:{},m:{}'.format(np.shape(X),m))
 	delta = 0.005
+	lambda_ = 0.5
+	etha= 4*(m-np.count_nonzero(y==y[0]))/lambda_*delta
 	W = np.zeros((m,m))
-	
-	for i in range(m):
-		print(i)
+	D = np.zeros((m,m))
+	print('*** starting spectral regression .. !')
+	for i in tqdm(range(m)):
 		for j in range(m):
 			if i < len(y) and j < len(y): # labled data
 				if y[i] == y[j]:
 					W[i][j] = 1.0/np.count_nonzero(y==y[i])
 			else:	
 				#W[i][j] = gaussian(X_[i],X_[j],delta*linalg.norm(X_))
-				W[i][j] = linalg.norm(X_[i]-X_[j])
-	D = np.diag(np.diag(W))
+				W[i][j] = delta*linalg.norm(X_[i]-X_[j])
+		D[i][i] = np.sum(W[i])
 	eigvals, eigvecs = eigh(W, D, eigvals_only=False)
-	print('eigvs:{} eigvals:{}'.format(len(eigvecs),len(eigvals)))
+	idx = eigvals.argsort()[::-1] # decreasing sort eig values 
+	eigvals = eigvals[idx]
+	eigvecs = eigvecs[idx]
+	vec_0 = eigvecs[0]
+	for i in range(len(X)):
+		for j in range(len(X),len(X_)):
+			if abs(vec_0[j]-vec_0[i])<etha:	
+				yp[j-len(X)] = y[i]
 	
+	try:
+		os.remove('sr.'+args.model+'.'+str(lambda_)+'.'+str(delta)+'.predict.xml')
+    	except OSError:
+  		pass
+
+	sum_ = 0
+	for train_index, test_index in kf.split(X):
+		X_train, X_test = X[train_index], X[test_index]
+		y_train, y_test = y[train_index], y[test_index]
+		X_train = np.concatenate((X_train,Xp))
+		y_train = np.concatenate((y_train,yp))
+		model.fit(X_train,y_train) # learning the model
+		with open('sr.'+args.model+'.'+str(lambda_)+'.'+str(delta)+'.predict.xml','a') as f:
+			for i in range(len(X_test)):
+				t = model.predict([X_test[i]])[0]
+				f.write(str(t)+'\n')
+				sum_ = sum_+ (y_test[i]-t)**2
+	with open('sr.'+args.model+'.'+lambda_+'.'+delta+'.predict.xml','a') as f:
+		f.write('mse='+str(sum_/len(y_test)))
+	print('.. spectral regression completed. mse = {} ***'.format(sum_/len(y_test)))
+
 elif args.semi and len(args.file)!=2:
 	print('please use single labled data.')
 else:
