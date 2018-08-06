@@ -53,141 +53,63 @@ y = np.array([0]*713)
 yp = np.array([0]*1000)
 kf = KFold(n_splits=5)
 
-def gaussian(xi,xj,sigma):
-	return np.exp(-(linalg.norm(xi-xj))/(2*sigma**2))
-######################### Data Loading ############################
-with open('all_behav_713.csv') as f:
-	y = [float(line) for line in f.readlines()]
-
-y=np.array(y)
-dataList=[]
-for file_ in args.file:
-	if file_=='unlabled.csv':
-		with open(file_) as f:
-			a = json.load(f)
-			Xp = np.asarray(a).reshape(268*268,len(a[0][0]))
-			Xp = np.transpose(Xp)
-	else:
-		with open(file_) as f:
-	    		dataList.append(json.load(f))
-
-if args.semi:
-	a = np.asarray(np.asarray(dataList[0])).reshape(268*268,713)
-	X = np.transpose(a)
-else:
-	for z in range(len(dataList)):
-		a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
-		X[z] = np.transpose(a)
-
-print('** Data loaded. X:{} and Xp:{} **'.format(np.shape(X),np.shape(Xp)))
-
-################### Normalization ##############################
-scalar = MinMaxScaler()
-Xp = scalar.fit_transform(Xp)
-if args.semi:
-	X= scalar.fit_transform(X)
-else:
-	for z in tqdm(range(len(dataList))):
-		X[z] = scalar.fit_transform(X[z])
-print('** Data normalized **')
-############################ NMF ################################
-if len(dataList)==1 and not args.semi:
-	X= X[0]
-elif len(dataList)==2 and args.agg=='nmf': # NMF
-	print('nmf starting ..')
-	W=[]
-	H=[]
-	mf = NMF(n_components=40, init='random', random_state=1)
-	for j in range(len(args.file)):
-		W.append(mf.fit_transform(X[j]))
-		H.append(mf.components_)
-	X = np.matmul(W[0],H[1])
-	#for i in range(713):
-	#	W=[]
-	#	H=[]
-	#	mf = NMF(n_components=5, init='random', random_state=1)
-	#	for j in range(len(args.file)):
-	#		W.append(mf.fit_transform(X[j][i][:].reshape(268,268)))
-	#		H.append(mf.components_)
-	#	Z[i] = np.matmul(W[0],H[1]).reshape(268*268)
-	#X = Z
+def nmf(k,mode):
+	if mode ==0: # data level
+		print('nmf starting ..')
+		W=[]
+		H=[]
+		mf = NMF(n_components=40, init='random', random_state=1)
+		for j in range(len(args.file)):
+			W.append(mf.fit_transform(X[j]))
+			H.append(mf.components_)
+		X = np.matmul(W[0],H[1])
+	else: # subject level
+		for i in range(713):
+			W=[]
+			H=[]
+			mf = NMF(n_components=5, init='random', random_state=1)
+			for j in range(len(args.file)):
+				W.append(mf.fit_transform(X[j][i][:].reshape(268,268)))
+				H.append(mf.components_)
+			Z[i] = np.matmul(W[0],H[1]).reshape(268*268)
+		X = Z
 	print('nmf done!')
-elif len(dataList)>1 and args.agg=='avg': # average
-	Z = np.zeros((713,268*268)) # reshape
-	for i in range(len(args.file)):
-		Z = np.add(Z,X[i])
-	X = Z/len(args.file)	
-elif len(dataList)>1 and args.agg=='max': # average
-	Z = np.zeros((713,268*268)) # reshape
-	for i in range(len(args.file)):
-		Z = np.maximum(Z,X[i])
-	X = Z
-elif len(dataList)>1 and args.agg=='min': # average
-	Z = 10*np.ones((713,268*268)) # reshape
-	for i in range(len(args.file)):
-		Z = np.minimum(Z,X[i])
-	X = Z
-################### Semi-Supervised Learning######################
-try:
-    try:
-	os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
-    except OSError:
-    	pass
-    
-except OSError:
-    pass
+	return X
 
-dt = DecisionTreeClassifier(min_samples_split=20, random_state=99)
-svr = SVR(kernel='poly', C=1e3, degree=2)
-reg = linear_model.Lasso(alpha = 0.1)
-rf = RandomForestClassifier(max_depth=2, random_state=0)
-ab= AdaBoostClassifier(
-    DecisionTreeClassifier(max_depth=2),
-    n_estimators=600,
-    learning_rate=1.5,
-    algorithm="SAMME")
-gnb = MultinomialNB() #GaussianNB()
-lrg=LogisticRegression()
-model =dt
-if args.model=='lrg':
-	model= lrg
-elif args.model=='svr':
-	model=svr
-elif args.model=='rf':
-	model=rf
-elif args.model=='av':
-	model==ab
-elif args.model=='gnb':
-	model=gnb
-if args.semi=='svr' and len(args.file)==2: # one labled and one unlabled 
+def two_stage_svr(X,y,Xp):
 	model.fit(X,y) # learning the model
 	yp= np.array([0]*len(Xp))
 	for i in range(len(Xp)):
 		yp[i] = model.predict([Xp[i]])[0]
-	#X_train = 	
-	#X_test = X[601:700]
-	#y_test  = y[601:700]
-	#X_train = np.concatenate((X[1:200],Xp))
-	#y_train = np.concatenate((y[1:200],yp))
-	#model.fit(X_train,y_train) # learning the model
-	#sum_ = 0
-	#with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-	#	for i in range(len(X_test)):
-	#		y_ = model.predict([X_test[i]])[0]
-	#		sum_ = sum_+ (y_test[i]-y_)**2
-	#		f.write(str(y_)+'\n')
-	#print(sum_/len(y_test))
-	for train_index, test_index in kf.split(X):
-		X_train, X_test = X[train_index], X[test_index]
-		y_train, y_test = y[train_index], y[test_index]
-		X_train = np.concatenate((X_train,Xp))
-		y_train = np.concatenate((y_train,yp))
+	data = []
+	for i in range(5):
+		idx = np.arange(700)
+		np.random.shuffle(idx)
+	  		
+		X_test = X[idx[601:700]]
+		y_test  = y[idx[601:700]]
+		X_train = np.concatenate((X[idx[1:100]],Xp))
+		y_train = np.concatenate((y[idx[1:100]],yp))
 		model.fit(X_train,y_train) # learning the model
-		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-			for i in range(len(X_test)):
-				f.write(str(model.predict([X_test[i]])[0])+'\n')
+		sum_ = 0
+		for i in range(len(X_test)):
+			y_ = model.predict([X_test[i]])[0]
+			sum_ = sum_+ (y_test[i]-y_)**2
+		data.append(sum_/len(y_test))
+	with open('100.txt','w') as f:
+		f.write(str(np.mean(data))+'\t'+str(np.std(data)))
+	#for train_index, test_index in kf.split(X):
+	#	X_train, X_test = X[train_index], X[test_index]
+	#	y_train, y_test = y[train_index], y[test_index]
+	#	X_train = np.concatenate((X_train,Xp))
+	#	y_train = np.concatenate((y_train,yp))
+	#	model.fit(X_train,y_train) # learning the model
+	#	with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+	#		for i in range(len(X_test)):
+	#			f.write(str(model.predict([X_test[i]])[0])+'\n')
 	print('svr > svr is done!')
-elif args.semi =='sr' and len(args.file)==2:
+
+def spectral_reg(X,y,Xp):
 	X_ = np.vstack([X,Xp]) # R^m*(268*268)
 	yp= np.array([0]*len(Xp))
 	l = len(X) # number of labled data
@@ -238,9 +160,7 @@ elif args.semi =='sr' and len(args.file)==2:
 		f.write('mse='+str(sum_/len(y)))
 	print('.. spectral regression completed. mse = {} ***'.format(sum_/len(y_test)))
 
-elif args.semi and len(args.file)!=2:
-	print('please use single labled data.')
-else:
+def svr_reg(X,y):
 	for train_index, test_index in kf.split(X):
 		X_train, X_test = X[train_index], X[test_index]
 		y_train, y_test = y[train_index], y[test_index]
@@ -249,3 +169,100 @@ else:
 			for i in range(len(X_test)):
 				f.write(str(model.predict([X_test[i]])[0])+'\n')
 
+def gaussian(xi,xj,sigma):
+	return np.exp(-(linalg.norm(xi-xj))/(2*sigma**2))
+######################### Data Loading ############################
+with open('all_behav_713.csv') as f:
+	y = [float(line) for line in f.readlines()]
+
+y=np.array(y)
+dataList=[]
+for file_ in args.file:
+	if file_=='unlabled.csv':
+		with open(file_) as f:
+			a = json.load(f)
+			Xp = np.asarray(a).reshape(268*268,len(a[0][0]))
+			Xp = np.transpose(Xp)
+	else:
+		with open(file_) as f:
+	    		dataList.append(json.load(f))
+
+if args.semi:
+	a = np.asarray(np.asarray(dataList[0])).reshape(268*268,713)
+	X = np.transpose(a)
+else:
+	for z in range(len(dataList)):
+		a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
+		X[z] = np.transpose(a)
+
+print('** Data loaded. X:{} and Xp:{} **'.format(np.shape(X),np.shape(Xp)))
+
+################### Normalization ##############################
+scalar = MinMaxScaler()
+Xp = scalar.fit_transform(Xp)
+if args.semi: # 1 labled and 1 unlabled data
+	X= scalar.fit_transform(X)
+else: # we have multiple labled data
+	for z in tqdm(range(len(dataList))):
+		X[z] = scalar.fit_transform(X[z])
+print('** Data normalized **')
+############################ NMF ################################
+if len(dataList)==1 and not args.semi:
+	X= X[0]
+elif len(dataList)==2 and args.agg=='nmf': # NMF
+	X = nmf(k,0)
+elif len(dataList)>1 and args.agg=='avg': # average
+	Z = np.zeros((713,268*268)) # reshape
+	for i in range(len(args.file)):
+		Z = np.add(Z,X[i])
+	X = Z/len(args.file)	
+elif len(dataList)>1 and args.agg=='max': # average
+	Z = np.zeros((713,268*268)) # reshape
+	for i in range(len(args.file)):
+		Z = np.maximum(Z,X[i])
+	X = Z
+elif len(dataList)>1 and args.agg=='min': # average
+	Z = 10*np.ones((713,268*268)) # reshape
+	for i in range(len(args.file)):
+		Z = np.minimum(Z,X[i])
+	X = Z
+################### Semi-Supervised Learning######################
+try:
+    try:
+	os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
+    except OSError:
+    	pass
+    
+except OSError:
+    pass
+
+dt = DecisionTreeClassifier(min_samples_split=20, random_state=99)
+svr = SVR(kernel='poly', C=1e3, degree=2)
+reg = linear_model.Lasso(alpha = 0.1)
+rf = RandomForestClassifier(max_depth=2, random_state=0)
+ab= AdaBoostClassifier(
+    DecisionTreeClassifier(max_depth=2),
+    n_estimators=600,
+    learning_rate=1.5,
+    algorithm="SAMME")
+gnb = MultinomialNB() #GaussianNB()
+lrg=LogisticRegression()
+model =dt
+if args.model=='lrg':
+	model= lrg
+elif args.model=='svr':
+	model=svr
+elif args.model=='rf':
+	model=rf
+elif args.model=='av':
+	model==ab
+elif args.model=='gnb':
+	model=gnb
+if args.semi=='svr' and len(args.file)==2: # one labled and one unlabled 
+	two_stage_svr(X,y,Xp)
+elif args.semi =='sr' and len(args.file)==2:
+	spectral_reg(X,y,Xp)
+elif args.semi and len(args.file)!=2:
+	print('please use single labled data.')
+else:
+	svr_reg(X,y)	
