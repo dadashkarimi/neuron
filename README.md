@@ -4,5 +4,5 @@ This repository is about machine learning techniques on decoding brain activity.
 
 
 <p align="center">
-  <img width="460" height="300" src="brain.jpg">
+  <img width="400" height="300" src="brain.jpg">
 </p>
