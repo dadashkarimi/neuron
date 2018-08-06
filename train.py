@@ -208,8 +208,8 @@ elif args.semi =='sr' and len(args.file)==2:
 	l = len(X) # number of labled data
 	m = len(X_) # total number of examples (m-l = # unlabled data)
 	print('l:{},m:{}'.format(np.shape(X),m))
-	delta = 0.005
-	lambda_ = 0.5
+	delta = 1.0
+	lambda_ = 1.0
 	etha= 4*(m-np.count_nonzero(y==y[0]))/lambda_*delta
 	W = np.zeros((m,m))
 	D = np.zeros((m,m))
@@ -238,7 +238,7 @@ elif args.semi =='sr' and len(args.file)==2:
     	except OSError:
   		pass
 
-	sum_ = 0
+	sum_ = 0.0
 	for train_index, test_index in kf.split(X):
 		X_train, X_test = X[train_index], X[test_index]
 		y_train, y_test = y[train_index], y[test_index]
@@ -250,8 +250,8 @@ elif args.semi =='sr' and len(args.file)==2:
 				t = model.predict([X_test[i]])[0]
 				f.write(str(t)+'\n')
 				sum_ = sum_+ (y_test[i]-t)**2
-	with open('sr.'+args.model+'.'+lambda_+'.'+delta+'.predict.xml','a') as f:
-		f.write('mse='+str(sum_/len(y_test)))
+	with open('sr.'+args.model+'.'+str(lambda_)+'.'+str(delta)+'.predict.xml','a') as f:
+		f.write('mse='+str(sum_/len(y)))
 	print('.. spectral regression completed. mse = {} ***'.format(sum_/len(y_test)))
 
 elif args.semi and len(args.file)!=2:

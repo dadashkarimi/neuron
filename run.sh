@@ -8,6 +8,5 @@
 #SBATCH --time=12:00:00
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=email
-
-python train.py -file rest1_LR.mat.csv  unlabled.csv -m svr -semi True
+python train.py -file rest1_LR.mat.csv  unlabled.csv -m svr -semi sr
 #python train.py -file rest1_LR.mat.csv -m svr
