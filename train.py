@@ -82,21 +82,25 @@ def two_stage_svr(X,y,Xp):
 	for i in range(len(Xp)):
 		yp[i] = model.predict([Xp[i]])[0]
 	data = []
-	for i in range(5):
+	for i in tqdm(range(5)):
 		idx = np.arange(700)
 		np.random.shuffle(idx)
-	  		
+	  	
+	
+		idxp = np.arange(len(Xp))
+		np.random.shuffle(idxp)
+		
 		X_test = X[idx[601:700]]
 		y_test  = y[idx[601:700]]
-		X_train = np.concatenate((X[idx[1:100]],Xp))
-		y_train = np.concatenate((y[idx[1:100]],yp))
+		X_train = np.concatenate((X[idx[1:100]],Xp[idxp[1:200]]))
+		y_train = np.concatenate((y[idx[1:100]],yp[idxp[1:200]]))
 		model.fit(X_train,y_train) # learning the model
 		sum_ = 0
 		for i in range(len(X_test)):
 			y_ = model.predict([X_test[i]])[0]
 			sum_ = sum_+ (y_test[i]-y_)**2
 		data.append(sum_/len(y_test))
-	with open('100.txt','w') as f:
+	with open('100.200.txt','w') as f:
 		f.write(str(np.mean(data))+'\t'+str(np.std(data)))
 	#for train_index, test_index in kf.split(X):
 	#	X_train, X_test = X[train_index], X[test_index]
