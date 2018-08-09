@@ -42,7 +42,7 @@ parser.add_argument('-file', '-f', nargs='+' ,help='data file for train and test
 
 parser.add_argument('--model', '-m', help='[lrg(linear regression),svr(support vector regression),dt (decision tree),rf(random forest)]')
 parser.add_argument('--agg', '-agg', help='[nmf(non-negative matrix factorization), avg(average), max(maximum), min(minimum)]')
-parser.add_argument('--semi', '-semi', help='[semi supervised: sr=spectral regression, svr = two stage svr]')
+parser.add_argument('--semi', '-semi', help='[semi supervised: sr=spectral regression, svr = two stage svr, harmonic = harmonic regression]')
 args = parser.parse_args()
 
 train = np.zeros((len(args.file),268,268,713))
@@ -76,7 +76,7 @@ def nmf(k,mode):
 	print('nmf done!')
 	return X
 
-def two_stage_svr(X,y,Xp):
+def two_stage_svr_curve(X,y,Xp):
 	model.fit(X,y) # learning the model
 	yp= np.array([0]*len(Xp))
 	for i in range(len(Xp)):
@@ -102,15 +102,17 @@ def two_stage_svr(X,y,Xp):
 		data.append(sum_/len(y_test))
 	with open('100.200.txt','w') as f:
 		f.write(str(np.mean(data))+'\t'+str(np.std(data)))
-	#for train_index, test_index in kf.split(X):
-	#	X_train, X_test = X[train_index], X[test_index]
-	#	y_train, y_test = y[train_index], y[test_index]
-	#	X_train = np.concatenate((X_train,Xp))
-	#	y_train = np.concatenate((y_train,yp))
-	#	model.fit(X_train,y_train) # learning the model
-	#	with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
-	#		for i in range(len(X_test)):
-	#			f.write(str(model.predict([X_test[i]])[0])+'\n')
+
+def two_stage_svr(X,y,Xp):
+	for train_index, test_index in kf.split(X):
+		X_train, X_test = X[train_index], X[test_index]
+		y_train, y_test = y[train_index], y[test_index]
+		X_train = np.concatenate((X_train,Xp))
+		y_train = np.concatenate((y_train,yp))
+		model.fit(X_train,y_train) # learning the model
+		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+			for i in range(len(X_test)):
+				f.write(str(model.predict([X_test[i]])[0])+'\n')
 	print('svr > svr is done!')
 
 def spectral_reg(X,y,Xp):
@@ -164,6 +166,55 @@ def spectral_reg(X,y,Xp):
 		f.write('mse='+str(sum_/len(y)))
 	print('.. spectral regression completed. mse = {} ***'.format(sum_/len(y_test)))
 
+def harmonic_reg(X,y,Xp):
+	X_ = np.vstack([X,Xp]) # R^m*(268*268)
+	yp= np.array([0]*len(Xp))
+	l = len(X) # number of labled data
+	m = len(X_) # total number of examples (m-l = # unlabled data)
+	W = np.zeros((m,m))
+	D = np.zeros((m,m))
+	f = np.zeros((m,1))
+	
+	print('*** starting random walk regression .. !')
+	from scipy.spatial.distance import pdist, squareform
+	import random
+	W = squareform(pdist(X_, 'seuclidean',V=None))
+	#for i in tqdm(range(m)):
+	#	for j in range(m):
+	#		W[i][j] = linalg.norm(X_[i]-X_[j])
+			#W[i][j] = random.randint(1,10)#linalg.norm(X_[i]-X_[j])
+	#	D[i][i] = np.sum(W[i])
+	Duu = D[l:,l:]	
+	Wuu = W[l:,l:]
+	Wul = W[l:,:l]
+	f = np.concatenate([y,yp])
+	fl = f[:l]
+	from numpy.linalg import inv
+	fu = np.matmul(np.matmul(inv(Duu-Wuu),Wul),fl)
+	f[l:] = fu
+		
+	try:
+		os.remove('harmonic.predict.xml')
+    	except OSError:
+  		pass
+
+	sum_ = 0.0
+	for train_index, test_index in kf.split(X):
+		X_train, X_test = X[train_index], X[test_index]
+		y_train, y_test = y[train_index], y[test_index]
+		X_train = np.concatenate((X_train,Xp))
+		y_train = np.concatenate((y_train,fu))
+		model.fit(X_train,y_train) # learning the model
+		with open('harmonic.predict.xml','a') as f:
+			for i in range(len(X_test)):
+				t = model.predict([X_test[i]])[0]
+				f.write(str(t)+'\n')
+				sum_ = sum_+ (y_test[i]-t)**2
+	with open('harmonic.predict.xml','a') as f:
+		f.write('mse='+str(sum_/len(y)))
+	print('.. radom walk regression completed. mse = {} ***'.format(sum_/len(y)))
+
+
 def svr_reg(X,y):
 	for train_index, test_index in kf.split(X):
 		X_train, X_test = X[train_index], X[test_index]
@@ -175,6 +226,7 @@ def svr_reg(X,y):
 
 def gaussian(xi,xj,sigma):
 	return np.exp(-(linalg.norm(xi-xj))/(2*sigma**2))
+
 ######################### Data Loading ############################
 with open('all_behav_713.csv') as f:
 	y = [float(line) for line in f.readlines()]
@@ -210,6 +262,7 @@ else: # we have multiple labled data
 	for z in tqdm(range(len(dataList))):
 		X[z] = scalar.fit_transform(X[z])
 print('** Data normalized **')
+
 ############################ NMF ################################
 if len(dataList)==1 and not args.semi:
 	X= X[0]
@@ -230,7 +283,6 @@ elif len(dataList)>1 and args.agg=='min': # average
 	for i in range(len(args.file)):
 		Z = np.minimum(Z,X[i])
 	X = Z
-################### Semi-Supervised Learning######################
 try:
     try:
 	os.remove('.'.join(args.file)+'.'+args.model+'.predict.xml')
@@ -266,6 +318,8 @@ if args.semi=='svr' and len(args.file)==2: # one labled and one unlabled
 	two_stage_svr(X,y,Xp)
 elif args.semi =='sr' and len(args.file)==2:
 	spectral_reg(X,y,Xp)
+elif args.semi =='harmonic' and len(args.file)==2:
+	harmonic_reg(X,y,Xp)
 elif args.semi and len(args.file)!=2:
 	print('please use single labled data.')
 else:
