@@ -51,7 +51,47 @@ X = np.zeros((len(args.file),713,268*268)) # reshape
 Xp = np.zeros((1000,268*268)) # 1000 is arbitrary number
 y = np.array([0]*713)
 yp = np.array([0]*1000)
-kf = KFold(n_splits=5)
+kf = KFold(n_splits=10)
+
+
+
+######################### Data Loading ############################
+with open('all_behav_713.csv') as f:
+	y = [float(line) for line in f.readlines()]
+
+y=np.array(y)
+dataList=[]
+for file_ in args.file:
+	if file_=='unlabled.csv':
+		with open(file_) as f:
+			a = json.load(f)
+			Xp = np.asarray(a).reshape(268*268,len(a[0][0]))
+			Xp = np.transpose(Xp)
+	else:
+		with open(file_) as f:
+	    		dataList.append(json.load(f))
+
+if args.semi:
+	a = np.asarray(np.asarray(dataList[0])).reshape(268*268,713)
+	X = np.transpose(a)
+else:
+	for z in range(len(dataList)):
+		a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
+		X[z] = np.transpose(a)
+
+print('** Data loaded. X:{} and Xp:{} **'.format(np.shape(X),np.shape(Xp)))
+
+################### Normalization ##############################
+scalar = MinMaxScaler()
+Xp = scalar.fit_transform(Xp)
+if args.semi: # 1 labled and 1 unlabled data
+	X= scalar.fit_transform(X)
+else: # we have multiple labled data
+	for z in tqdm(range(len(dataList))):
+		X[z] = scalar.fit_transform(X[z])
+print('** Data normalized **')
+
+
 
 def nmf(k,mode):
 	if mode ==0: # data level
@@ -76,6 +116,20 @@ def nmf(k,mode):
 	print('nmf done!')
 	return X
 
+def isotoic_reg(X,y,Xp):
+	from sklearn.isotonic import IsotonicRegression
+	ir = IsotonicRegression()
+	idx= y.argsort()
+	X = X[idx]
+	y = y[idx]
+	
+	def find_nearest(X,y,xpi):
+	    idx = np.sum((X-xpi)**2,axis=1).argsort() 
+	    return y[idx[0]]
+	
+	y_ = ir.fit_transform(X, y)
+	yp = [find_nearest(X,y,xpi) for xpi in Xp]
+	
 def two_stage_svr_curve(X,y,Xp):
 	model.fit(X,y) # learning the model
 	yp= np.array([0]*len(Xp))
@@ -103,16 +157,42 @@ def two_stage_svr_curve(X,y,Xp):
 	with open('100.200.txt','w') as f:
 		f.write(str(np.mean(data))+'\t'+str(np.std(data)))
 
+
 def two_stage_svr(X,y,Xp):
+	try:
+		os.remove('two_stage.svr.predict.xml')
+    	except OSError:
+  		pass
+
+
+	sum_ = 0
 	for train_index, test_index in kf.split(X):
+		mu, sigma = 0.0 , 0.0
+		epsilon = np.random.normal(mu, sigma, len(train_index))
 		X_train, X_test = X[train_index], X[test_index]
 		y_train, y_test = y[train_index], y[test_index]
+			
+		model.fit(X_train,y_train) # learning the model
+		yp= np.array([0]*len(Xp))
+		for i in range(len(Xp)):
+			yp[i] = model.predict([Xp[i]])[0]
+		
+		y_train = y_train + epsilon
 		X_train = np.concatenate((X_train,Xp))
 		y_train = np.concatenate((y_train,yp))
 		model.fit(X_train,y_train) # learning the model
-		with open('.'.join(args.file)+'.'+args.model+'.predict.xml','a') as f:
+		y_= np.zeros(len(X_test))
+		for i in range(len(X_test)):
+			y_[i] = model.predict([X_test[i]])[0]
+		#OldRange = (np.max(y_train) - np.min(y_train))  
+		#NewRange = (np.max(y_) - np.min(y_))  
+		#new_y_ = [(((a - np.min(y_train)) * NewRange) / OldRange) + np.min(y_) for a in y_]
+		with open('two_stage.svr.predict.xml','a') as f:
 			for i in range(len(X_test)):
-				f.write(str(model.predict([X_test[i]])[0])+'\n')
+				f.write(str(y_[i])+'\n')
+				sum_ = sum_+ (y_test[i]-y_[i])**2
+	with open('two_stage.svr.predict.xml','a') as f:
+		f.write('mse='+str(sum_/len(y)))
 	print('svr > svr is done!')
 
 def spectral_reg(X,y,Xp):
@@ -121,7 +201,7 @@ def spectral_reg(X,y,Xp):
 	l = len(X) # number of labled data
 	m = len(X_) # total number of examples (m-l = # unlabled data)
 	print('l:{},m:{}'.format(np.shape(X),m))
-	delta = 1.0
+	delta = 0.005
 	lambda_ = 1.0
 	etha= 4*(m-np.count_nonzero(y==y[0]))/lambda_*delta
 	W = np.zeros((m,m))
@@ -139,14 +219,16 @@ def spectral_reg(X,y,Xp):
 	idx = eigvals.argsort()[::-1] # decreasing sort eig values 
 	eigvals = eigvals[idx]
 	eigvecs = eigvecs[idx]
-	vec_0 = eigvecs[0]
+	vec_0 = eigvecs[len(eigvecs)-1]
+	print('etha={}'.format(etha))
 	for i in range(len(X)):
 		for j in range(len(X),len(X_)):
-			if abs(vec_0[j]-vec_0[i])<etha:	
+			#if abs(vec_0[j]-vec_0[i])<etha:	
+			if abs(eigvals[j]-eigvals[i])<etha:	
 				yp[j-len(X)] = y[i]
 	
 	try:
-		os.remove('sr.'+args.model+'.'+str(lambda_)+'.'+str(delta)+'.predict.xml')
+		os.remove('sr.predict.xml')
     	except OSError:
   		pass
 
@@ -157,12 +239,12 @@ def spectral_reg(X,y,Xp):
 		X_train = np.concatenate((X_train,Xp))
 		y_train = np.concatenate((y_train,yp))
 		model.fit(X_train,y_train) # learning the model
-		with open('sr.'+args.model+'.'+str(lambda_)+'.'+str(delta)+'.predict.xml','a') as f:
+		with open('sr.predict.xml','a') as f:
 			for i in range(len(X_test)):
 				t = model.predict([X_test[i]])[0]
 				f.write(str(t)+'\n')
 				sum_ = sum_+ (y_test[i]-t)**2
-	with open('sr.'+args.model+'.'+str(lambda_)+'.'+str(delta)+'.predict.xml','a') as f:
+	with open('sr.predict.xml','a') as f:
 		f.write('mse='+str(sum_/len(y)))
 	print('.. spectral regression completed. mse = {} ***'.format(sum_/len(y_test)))
 
@@ -178,7 +260,9 @@ def harmonic_reg(X,y,Xp):
 	print('*** starting random walk regression .. !')
 	from scipy.spatial.distance import pdist, squareform
 	import random
-	W = squareform(pdist(X_, 'seuclidean',V=None))
+	W = squareform(pdist(X_,'minkowski', p=2.))
+	for i in tqdm(range(m)):
+		D[i][i] = np.sum(W[i])
 	#for i in tqdm(range(m)):
 	#	for j in range(m):
 	#		W[i][j] = linalg.norm(X_[i]-X_[j])
@@ -226,42 +310,6 @@ def svr_reg(X,y):
 
 def gaussian(xi,xj,sigma):
 	return np.exp(-(linalg.norm(xi-xj))/(2*sigma**2))
-
-######################### Data Loading ############################
-with open('all_behav_713.csv') as f:
-	y = [float(line) for line in f.readlines()]
-
-y=np.array(y)
-dataList=[]
-for file_ in args.file:
-	if file_=='unlabled.csv':
-		with open(file_) as f:
-			a = json.load(f)
-			Xp = np.asarray(a).reshape(268*268,len(a[0][0]))
-			Xp = np.transpose(Xp)
-	else:
-		with open(file_) as f:
-	    		dataList.append(json.load(f))
-
-if args.semi:
-	a = np.asarray(np.asarray(dataList[0])).reshape(268*268,713)
-	X = np.transpose(a)
-else:
-	for z in range(len(dataList)):
-		a = np.asarray(np.asarray(dataList[z])).reshape(268*268,len(dataList[z][0][0]))
-		X[z] = np.transpose(a)
-
-print('** Data loaded. X:{} and Xp:{} **'.format(np.shape(X),np.shape(Xp)))
-
-################### Normalization ##############################
-scalar = MinMaxScaler()
-Xp = scalar.fit_transform(Xp)
-if args.semi: # 1 labled and 1 unlabled data
-	X= scalar.fit_transform(X)
-else: # we have multiple labled data
-	for z in tqdm(range(len(dataList))):
-		X[z] = scalar.fit_transform(X[z])
-print('** Data normalized **')
 
 ############################ NMF ################################
 if len(dataList)==1 and not args.semi:
