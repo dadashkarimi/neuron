@@ -42,7 +42,7 @@ parser.add_argument('-file', '-f', nargs='+' ,help='data file for train and test
 
 parser.add_argument('--model', '-m', help='[lrg(linear regression),svr(support vector regression),dt (decision tree),rf(random forest)]')
 parser.add_argument('--agg', '-agg', help='[nmf(non-negative matrix factorization), avg(average), max(maximum), min(minimum)]')
-parser.add_argument('--semi', '-semi', help='[semi supervised: sr=spectral regression, svr = two stage svr, harmonic = harmonic regression]')
+parser.add_argument('--semi', '-semi', help='[semi supervised: sr=spectral regression, svr = two stage svr, harmonic = harmonic regressionm, isotonic = isotonic regression]')
 args = parser.parse_args()
 
 train = np.zeros((len(args.file),268,268,713))
@@ -51,9 +51,7 @@ X = np.zeros((len(args.file),713,268*268)) # reshape
 Xp = np.zeros((1000,268*268)) # 1000 is arbitrary number
 y = np.array([0]*713)
 yp = np.array([0]*1000)
-kf = KFold(n_splits=10)
-
-
+kf = KFold(n_splits=5)
 
 ######################### Data Loading ############################
 with open('all_behav_713.csv') as f:
@@ -116,19 +114,54 @@ def nmf(k,mode):
 	print('nmf done!')
 	return X
 
-def isotoic_reg(X,y,Xp):
+def isotoic_reg(X,y,Xp,only_knn=False):
+	print(only_knn)
 	from sklearn.isotonic import IsotonicRegression
 	ir = IsotonicRegression()
 	idx= y.argsort()
 	X = X[idx]
 	y = y[idx]
-	
+	yp = np.zeros(len(Xp))
+	y_hat = ir.fit_transform(np.arange(len(idx)),y)
+
+	def semi(X,y,Xp,yp):
+		pred = []
+		mse = 0.0
+		for train_index, test_index in tqdm(kf.split(X)):
+			X_train, X_test = X[train_index], X[test_index]
+			y_train, y_test = y[train_index], y[test_index]
+			X_train = np.concatenate((X_train,Xp))
+			y_train = np.concatenate((y_train,yp))
+			model.fit(X_train,y_train) # learning the model
+			for i in range(len(X_test)):
+				pred_i = model.predict([X_test[i]])[0]
+				pred.append(pred_i)
+				mse += (pred_i - y[i])**2
+		print('length of y  = {}'.format(len(y)))
+		return np.array(pred), mse/len(y)
+
+
 	def find_nearest(X,y,xpi):
 	    idx = np.sum((X-xpi)**2,axis=1).argsort() 
 	    return y[idx[0]]
 	
-	y_ = ir.fit_transform(X, y)
-	yp = [find_nearest(X,y,xpi) for xpi in Xp]
+	from sklearn.neighbors import KNeighborsClassifier
+	neigh = KNeighborsClassifier(n_neighbors=1)
+	pred , mse = [] , 0.0
+	if only_knn:
+		print('1 nearest neighbour .. ')
+		neigh.fit(X,y)
+		yp = [find_nearest(X,y,xpi) for xpi in tqdm(Xp)]
+		pred, mse= semi(X,y,Xp,yp)
+	else:
+		neigh.fit(X,y_hat)
+		yp = [find_nearest(X,y_hat,xpi) for xpi in tqdm(Xp)]
+		pred, mse= semi(X,y_hat,Xp,yp)
+	with open('isotonic.predict.xml','w') as f:
+		for label in pred:
+			f.write(str(label)+'\n')
+		f.write(str(mse)+'\n')
+	print('isotonic regression done with mse={}'.format(mse))
 	
 def two_stage_svr_curve(X,y,Xp):
 	model.fit(X,y) # learning the model
@@ -164,29 +197,33 @@ def two_stage_svr(X,y,Xp):
     	except OSError:
   		pass
 
-
 	sum_ = 0
-	for train_index, test_index in kf.split(X):
-		mu, sigma = 0.0 , 0.0
-		epsilon = np.random.normal(mu, sigma, len(train_index))
+	idx = np.arange(len(X))
+	#np.random.shuffle(idx)
+	#X = X[idx]
+	#y=  y[idx]
+	for train_index, test_index in tqdm(kf.split(X)):
+		#mu, sigma = 0.0 , 0.0
+		#epsilon = np.random.normal(mu, sigma, len(train_index))
+		
 		X_train, X_test = X[train_index], X[test_index]
 		y_train, y_test = y[train_index], y[test_index]
 			
-		model.fit(X_train,y_train) # learning the model
 		yp= np.array([0]*len(Xp))
+		model = SVR(kernel='poly', C=1e3, degree=2)
+		model.fit(X_train,y_train) # learning the model
 		for i in range(len(Xp)):
 			yp[i] = model.predict([Xp[i]])[0]
-		
-		y_train = y_train + epsilon
-		X_train = np.concatenate((X_train,Xp))
-		y_train = np.concatenate((y_train,yp))
-		model.fit(X_train,y_train) # learning the model
+		model_  = SVR(kernel='poly', C=1e3, degree=2)
+		#y_train = y_train #+ epsilon
+		#X_train = np.concatenate((X_train,Xp))
+		#y_train = np.concatenate((y_train,yp))
+		#model.fit(X_train,y_train) # learning the model
+		model_.fit(Xp,yp) # learning the model
 		y_= np.zeros(len(X_test))
+		alpha = 0.4
 		for i in range(len(X_test)):
-			y_[i] = model.predict([X_test[i]])[0]
-		#OldRange = (np.max(y_train) - np.min(y_train))  
-		#NewRange = (np.max(y_) - np.min(y_))  
-		#new_y_ = [(((a - np.min(y_train)) * NewRange) / OldRange) + np.min(y_) for a in y_]
+			y_[i] = (1-alpha)*model.predict([X_test[i]])[0] + alpha *model_.predict([X_test[i]])[0]
 		with open('two_stage.svr.predict.xml','a') as f:
 			for i in range(len(X_test)):
 				f.write(str(y_[i])+'\n')
@@ -364,6 +401,8 @@ elif args.model=='gnb':
 	model=gnb
 if args.semi=='svr' and len(args.file)==2: # one labled and one unlabled 
 	two_stage_svr(X,y,Xp)
+elif args.semi=='isotonic' and len(args.file)==2: # one labled and one unlabled 
+	isotoic_reg(X,y,Xp,True)
 elif args.semi =='sr' and len(args.file)==2:
 	spectral_reg(X,y,Xp)
 elif args.semi =='harmonic' and len(args.file)==2:
