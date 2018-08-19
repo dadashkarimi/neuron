@@ -210,7 +210,7 @@ def two_stage_svr(X,y,Xp):
 		y_train, y_test = y[train_index], y[test_index]
 			
 		yp= np.array([0]*len(Xp))
-		model = SVR(kernel='poly', C=1e3, degree=3)
+		model = SVR(kernel='poly', C=500, degree=3)
 		#model = SVR(kernel='rbf')
 		model.fit(X_train,y_train) # learning the model
 		for i in range(len(Xp)):
