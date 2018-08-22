@@ -7,8 +7,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 
 from sklearn import datasets
-from label_propagation import LabelSpreading
-from label_propagation import InfectionProp
+from infection_propagation import InfectionPropagation
 #import label_propagation
 
 from sklearn.metrics import confusion_matrix, classification_report
@@ -36,9 +35,9 @@ y_train[unlabeled_set] = -1
 
 # #############################################################################
 # Learn with LabelSpreading
-lp_model = InfectionProp(gamma=0.45, max_iter=1)
+lp_model = InfectionPropagation(gamma=0.45, max_iter=10,kernel='knn')
+#lp_model = LabelPropagation(gamma=0.45, max_iter=1)
 lp_model.fit(X, y_train)
-print(len(y_train))
 predicted_labels = lp_model.transduction_[unlabeled_set]
 true_labels = y[unlabeled_set]
 
